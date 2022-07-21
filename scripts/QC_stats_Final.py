@@ -153,20 +153,20 @@ def _ontarget(bam):
     ##intersectbed = '/usr/local/apps/bedtools/2.24.0/bin/intersectBed'
     intersectbed = 'bedtools intersect'
     targets      = argv[2]
-    ontarget_bam = "%s_ontarget.bam" % (os.path.basename(bam)) 
+    ontarget_bam = f"{os.path.basename(bam)}_ontarget.bam" 
 
     ## os.getenv('USER', default_value)
-    temp = tempfile.NamedTemporaryFile(dir=argv[3]) 
-    cmd  = '%s -abam "%s" -b %s' % (intersectbed, bam, targets) 
+    temp = tempfile.NamedTemporaryFile(dir=argv[3])
+    cmd  = '%s -abam "%s" -b %s' % (intersectbed, bam, targets)
     args = shlex.split(cmd)
 
     subprocess.check_call(args, stdout=temp)
-   
+
     temp.seek(0)
 
     stats = { 'ontarget_reads' : 0, 'unique_ontarget_reads' : 0, 'hq_unique_ontarget_reads': 0 } 
-   
-    min_mapq = 999999999 
+
+    min_mapq = 999999999
     mapq_array = [ ]
 
     with pysam.Samfile(temp.name, 'rb') as bam_file:
@@ -179,13 +179,13 @@ def _ontarget(bam):
                     min_mapq = read.mapq
                 if (read.mapq >= 30):
                     stats['hq_unique_ontarget_reads'] += 1
-   
+
     numpy_array = array(mapq_array)
 
     stats['min_mapq']    = min_mapq
     stats['mean_mapq']   = numpy_array.mean()
-    stats['mean_mapq']   = "%2.2F" % stats['mean_mapq'] 
-    stats['stddev_mapq'] = numpy_array.std() 
+    stats['mean_mapq']   = "%2.2F" % stats['mean_mapq']
+    stats['stddev_mapq'] = numpy_array.std()
     stats['stddev_mapq'] = "%2.2F" % stats['stddev_mapq']
 
     return stats 

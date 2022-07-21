@@ -5,15 +5,16 @@ import re
 from sys import argv
 
 samples=argv[2]
-output ={}
-output["sample_captures"] ={}
-output["Diagnosis"] = {}
-output["sample_type"] = {}
-output["subject"] = {}
-output["library"] = {}
-output["sample_references"] = {}
-output["sample_RNASeq"] = {}
-output["RNASeq"] = {}
+output = {
+	"sample_captures": {},
+	"Diagnosis": {},
+	"sample_type": {},
+	"subject": {},
+	"library": {},
+	"sample_references": {},
+	"sample_RNASeq": {},
+	"RNASeq": {},
+}
 
 #patientIndex=0
 #TypeIndex=1
@@ -37,7 +38,7 @@ output["RNASeq"] = {}
 #Case Name
 f = open(argv[1], 'r')
 for line in f:
-	line = line.rstrip()	
+	line = line.rstrip()
 	column = line.split("\t")
 	if re.search("custom ID", line):
 		patientIndex	=column.index('custom ID')
@@ -54,7 +55,7 @@ for line in f:
 		column[TypeIndex] = 'RNASeq'
 	elif column[TypeIndex]  == 'tumor DNA':
 		column[TypeIndex] = 'Tumor'
-	elif column[TypeIndex]  == 'normal DNA' or column[TypeIndex]  == 'blood DNA':
+	elif column[TypeIndex] in ['normal DNA', 'blood DNA']:
 		column[TypeIndex] = 'Normal'
 
 
@@ -67,20 +68,21 @@ for line in f:
 				output["sample_references"][column[libraryIndex]]=[column[normRefIndex]]
 			if column[rnaRefIndex]:
 				output["sample_RNASeq"][column[libraryIndex]] =[column[rnaRefIndex]]
-			if not column[FCIDIndex]:
-				output["library"][column[libraryIndex]] = [column[libraryIndex]]
-			else:
-				output["library"][column[libraryIndex]] = [column[libraryIndex]+"_"+column[FCIDIndex]]
+			output["library"][column[libraryIndex]] = (
+				[f"{column[libraryIndex]}_{column[FCIDIndex]}"]
+				if column[FCIDIndex]
+				else [column[libraryIndex]]
+			)
+
 			if 'Normal' in column[TypeIndex] or 'Tumor' in column[TypeIndex]:
-				if column[patientIndex] not in output["subject"].keys():	
-					output["subject"][column[patientIndex]]=[column[libraryIndex]]
-				else:
+				if column[patientIndex] in output["subject"].keys():
 					output["subject"][column[patientIndex]].append(column[libraryIndex])
+				else:	
+					output["subject"][column[patientIndex]]=[column[libraryIndex]]
+			elif column[patientIndex] not in output["RNASeq"].keys():
+				output["RNASeq"][column[patientIndex]]=[column[libraryIndex]]
 			else:
-				if column[patientIndex] not in output["RNASeq"].keys():
-					output["RNASeq"][column[patientIndex]]=[column[libraryIndex]]
-				else:
-					output["RNASeq"][column[patientIndex]].append(column[libraryIndex])
-		
+				output["RNASeq"][column[patientIndex]].append(column[libraryIndex])
+
 
 print(json.dumps(output, sort_keys=True, indent=4))
