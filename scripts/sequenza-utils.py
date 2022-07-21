@@ -40,7 +40,7 @@ def check_dir(directory):
    '''
    if directory == '':
       directory = None
-   if directory == None:
+   if directory is None:
       directory = os.getcwd()
    if os.path.isdir(directory):
       directory = os.path.abspath(directory)
@@ -134,16 +134,14 @@ class multiPileups:
                   ref1, line1 = line1.split('\t', 1)
                   ref2, line2 = line2.split('\t', 1)
                   return [chromosome1, position1, ref1, line1.strip(), line2.strip()]
-                  going_on = False
                elif position1 > position2:
                   chromosome2, position2, line2 = pileup_partial_split(self.p2.next())
                elif position1 < position2:
                   chromosome1, position1, line1 = pileup_partial_split(self.p1.next())
+            elif chromosome1 == self._last_chromosome:
+               chromosome1, position1, line1 = pileup_partial_split(self.p1.next())
             else:
-               if chromosome1 != self._last_chromosome:
-                  chromosome2, position2, line2 = pileup_partial_split(self.p2.next())
-               else:
-                  chromosome1, position1, line1 = pileup_partial_split(self.p1.next())
+               chromosome2, position2, line2 = pileup_partial_split(self.p2.next())
          except StopIteration:
             going_on = False
             raise StopIteration
@@ -193,16 +191,15 @@ class GCmultiPileups:
             if self.pile_line[1] >= self._last_window_s and self.pile_line[1] < self._last_window_e:
                self.pile_line.append(self._last_GC.strip())
                return self.pile_line
-               going_on = False
             elif self.pile_line[1] < self._last_window_s:
-               self.pile_line = self.mpileup.next()
-            elif self.pile_line[1] >= self._last_window_e:
-               self = next_gcfile(self)
-         else:
-            if self._last_chromosome != self._chromosome and self._last_chromosome != None:
                self.pile_line = self.mpileup.next()
             else:
                self = next_gcfile(self)
+         elif self._last_chromosome in [self._chromosome, None]:
+            self = next_gcfile(self)
+
+         else:
+            self.pile_line = self.mpileup.next()
    def close(self):
       self.mpileup.close()
       self.gc.close()
@@ -239,16 +236,14 @@ class GCmultiPileupsAltDepth:
                   ref2, depth2, line2 = line2.split('\t', 2)
                   self.pile_line.append(depth2.strip())
                   return self.pile_line
-                  going_on = False
                elif self.pile_line[1] > position2:
                   chromosome2, position2, line2 = pileup_partial_split(self.p2.next())
                elif self.pile_line[1] < position2:
                   self.pile_line = self.mpileup.next()
+            elif self.pile_line[0] == self._last_chromosome:
+               self.pile_line = self.mpileup.next()
             else:
-               if self.pile_line[0] != self._last_chromosome:
-                  chromosome2, position2, line2 = pileup_partial_split(self.p2.next())
-               else:
-                  self.pile_line = self.mpileup.next()
+               chromosome2, position2, line2 = pileup_partial_split(self.p2.next())
          except StopIteration:
             going_on = False
             raise StopIteration
@@ -285,12 +280,8 @@ def parse_pileup_str(line, min_depth, qlimit=20, qformat='sanger'):
             freq_dict = parse_pileup_seq(mut_list, mut_qual, rd, rebase, qlimit, qformat)
             line = [chromosome, n_base, rebase, depth, freq_dict['A'], freq_dict['C'], freq_dict['G'], freq_dict['T'], ':'.join(map(str, freq_dict['Z']))]
             return '\t'.join(map(str,line))
-         else:
-            pass
       except ValueError:
          pass
-   else:
-      pass
 
 def parse_pileup_seq(seq, quality, depth, reference, qlimit=20, qformat='sanger', noend=False, nostart=False):
    '''
@@ -323,11 +314,11 @@ def parse_pileup_seq(seq, quality, depth, reference, qlimit=20, qformat='sanger'
             start            = True
             block['length'] += 1
             block['seq']     = base
-         elif base == '+' or base == '-':
+         elif base in ['+', '-']:
             del_ins          = True
             block['length'] += 1
             block['seq']     = base
-         elif base == '.' or base == ',':
+         elif base in ['.', ',']:
             if ord(quality[n]) >= qlimit:
                nucleot_dict[reference] += 1
                if base == '.': strand_dict[reference] += 1
@@ -341,41 +332,43 @@ def parse_pileup_seq(seq, quality, depth, reference, qlimit=20, qformat='sanger'
             n +=1
          else:
             n += 1
-      else:
-         if start:
-            block['length'] += 1
+      elif start:
+         block['length'] += 1
+         block['seq']    += base
+         if block['length'] == 3:
+            if not nostart:
+               if base == '.':
+                  if ord(quality[n]) >= qlimit:
+                     nucleot_dict[reference] += 1
+                     strand_dict[reference] += 1
+               elif base == ',':
+                  if ord(quality[n]) >= qlimit:
+                     nucleot_dict[reference] += 1
+               elif base.strip().upper() in nucleot_dict:
+                  if ord(quality[n]) >= qlimit:
+                     nucleot_dict[base.strip().upper()] += 1
+                     if base.strip().isupper(): strand_dict[base.strip().upper()] += 1
+            block['length'] = 0
+            block['seq']    = ''
+            start           = False
+            n += 1
+      elif del_ins:
+         if base.isdigit():
+            l_del_ins       += base
             block['seq']    += base
-            if block['length'] == 3:
-               if not nostart:
-                  if base == '.' or base == ',':
-                     if ord(quality[n]) >= qlimit:
-                        nucleot_dict[reference] += 1
-                        if base == '.': strand_dict[reference] += 1
-                  elif base.strip().upper() in nucleot_dict:
-                     if ord(quality[n]) >= qlimit:
-                        nucleot_dict[base.strip().upper()] += 1
-                        if base.strip().isupper(): strand_dict[base.strip().upper()] += 1
+            block['length'] += 1
+         else:
+            block['seq']    += base
+            block['length'] += 1
+            ins_del_length = int(l_del_ins)+ 1 + len(l_del_ins)
+            if block['length'] == ins_del_length:
                block['length'] = 0
                block['seq']    = ''
-               start           = False
-               n += 1
-         elif del_ins:
-            if base.isdigit():
-               l_del_ins       += base
-               block['seq']    += base
-               block['length'] += 1
-            else:
-               ins_del_length = int(l_del_ins)+ 1 + len(l_del_ins)
-               block['seq']    += base
-               block['length'] += 1
-               if block['length'] == ins_del_length:
-                  block['length'] = 0
-                  block['seq']    = ''
-                  l_del_ins       = ''
-                  ins_del         = False
-                  ins_del_length  = 0
-      # Debug line
-      #print str(n) + " " + base + " " + seq
+               l_del_ins       = ''
+               ins_del         = False
+               ins_del_length  = 0
+         # Debug line
+         #print str(n) + " " + base + " " + seq
    if n == depth:
       nucleot_dict["Z"] = [strand_dict['A'], strand_dict['C'], strand_dict['G'], strand_dict['T']]
       return nucleot_dict
@@ -389,81 +382,146 @@ def line_worker(line, depth_sum, qlimit=20, qformat='sanger', hom_t=0.85, het_t=
    After the 3 files are syncronized we need to transform the pileup in a
    readable format, find the alleles, and compute the allele frequency in tumor
    '''
-   if line:
-      bases_list = ['A', 'C', 'G', 'T']
-      if alt_pileup:
-         chromosome, position, ref, p1_str, p2_str, gc, alt_depth = line
-      else:
-         chromosome, position, ref, p1_str, p2_str, gc = line
-      p1_list = p1_str.split()
-      p2_list = p2_str.split()
-      if int(p1_list[0]) + int(p2_list[0]) >= depth_sum and len(p1_list) == len(p2_list):
-         p1_mu  = parse_pileup(ref, p1_list, qlimit, qformat)
-         sum_p1 = float(sum(p1_mu[2:6]))
-         if sum_p1 > 0:
-            p1_freq = [x/sum_p1 for x in p1_mu[2:6]]
-            sort_freq_p1 = sorted(p1_freq, reverse = True)
-            if sort_freq_p1[0] >= hom_t:
-               # Homozygous positions here
-               i        = p1_freq.index(sort_freq_p1[0])
+   if not line:
+      return
+   if alt_pileup:
+      chromosome, position, ref, p1_str, p2_str, gc, alt_depth = line
+   else:
+      chromosome, position, ref, p1_str, p2_str, gc = line
+   p1_list = p1_str.split()
+   p2_list = p2_str.split()
+   if int(p1_list[0]) + int(p2_list[0]) >= depth_sum and len(p1_list) == len(p2_list):
+      p1_mu  = parse_pileup(ref, p1_list, qlimit, qformat)
+      sum_p1 = float(sum(p1_mu[2:6]))
+      if sum_p1 > 0:
+         p1_freq = [x/sum_p1 for x in p1_mu[2:6]]
+         sort_freq_p1 = sorted(p1_freq, reverse = True)
+         bases_list = ['A', 'C', 'G', 'T']
+         if sort_freq_p1[0] >= hom_t:
+            # Homozygous positions here
+            i        = p1_freq.index(sort_freq_p1[0])
+            p2_mu    = parse_pileup(ref, p2_list, qlimit, qformat)
+            sum_p2   = float(sum(p2_mu[2:6]))
+            if sum_p2 > 0:
+               p2_freq  = [x/sum_p2 for x in p2_mu[2:6]]
+               homoz_p2 = p2_freq[i]
+               no_zero_idx   = [val for val in range(len(p2_freq)) if p2_freq[val] > 0]
+               no_zero_bases = [str(bases_list[ll])+str(round(p2_freq[ll], 3)) for ll in no_zero_idx if ll != i]
+               if not no_zero_bases:
+                  no_zero_bases = '.'
+                  strands_bases = '0'
+               else:
+                  no_zero_bases = ":".join(map(str, no_zero_bases))
+                  strands_bases = [str(bases_list[ll])+str(round(p2_mu[6][ll]/float(p2_mu[2+ll]), 3)) for ll in no_zero_idx if ll != i]
+                  strands_bases = ":".join(map(str, strands_bases))
+               return ([
+                   chromosome,
+                   position,
+                   p1_mu[0],
+                   alt_depth,
+                   p2_mu[1],
+                   round(p2_mu[1] / float(alt_depth), 3),
+                   round(homoz_p2, 3),
+                   0,
+                   'hom',
+                   gc,
+                   int(sum_p2),
+                   bases_list[i],
+                   no_zero_bases,
+                   strands_bases,
+               ] if alt_pileup else [
+                   chromosome,
+                   position,
+                   p1_mu[0],
+                   p1_mu[1],
+                   p2_mu[1],
+                   round(p2_mu[1] / float(p1_mu[1]), 3),
+                   round(homoz_p2, 3),
+                   0,
+                   'hom',
+                   gc,
+                   int(sum_p2),
+                   bases_list[i],
+                   no_zero_bases,
+                   strands_bases,
+               ])
+         elif sort_freq_p1[1] >= het_t:
+                  # Heterozygous position here
+            allele = [bases_list[b] for b in xrange(4) if p1_freq[b] >= het_t]
+            if len(allele) == 2:
                p2_mu    = parse_pileup(ref, p2_list, qlimit, qformat)
                sum_p2   = float(sum(p2_mu[2:6]))
                if sum_p2 > 0:
-                  p2_freq  = [x/sum_p2 for x in p2_mu[2:6]]
-                  homoz_p2 = p2_freq[i]
-                  no_zero_idx   = [val for val in range(len(p2_freq)) if p2_freq[val] > 0]
-                  no_zero_bases = [str(bases_list[ll])+str(round(p2_freq[ll], 3)) for ll in no_zero_idx if ll != i]
-                  if no_zero_bases == []:
-                     no_zero_bases = '.'
-                     strands_bases = '0'
+                  i        = bases_list.index(allele[0])
+                  ii       = bases_list.index(allele[1])
+                  het_a_p2 = p2_mu[2 + i]/sum_p2
+                  het_b_p2 = p2_mu[2 + ii]/sum_p2
+                  if het_a_p2 >= het_b_p2:
+                     return ([
+                         chromosome,
+                         position,
+                         p1_mu[0],
+                         alt_depth,
+                         p2_mu[1],
+                         round(p2_mu[1] / float(alt_depth), 3),
+                         round(het_a_p2, 3),
+                         round(het_b_p2, 3),
+                         'het',
+                         gc,
+                         int(sum_p2),
+                         bases_list[i] + bases_list[ii],
+                         ".",
+                         "0",
+                     ] if alt_pileup else [
+                         chromosome,
+                         position,
+                         p1_mu[0],
+                         p1_mu[1],
+                         p2_mu[1],
+                         round(p2_mu[1] / float(p1_mu[1]), 3),
+                         round(het_a_p2, 3),
+                         round(het_b_p2, 3),
+                         'het',
+                         gc,
+                         int(sum_p2),
+                         bases_list[i] + bases_list[ii],
+                         ".",
+                         "0",
+                     ])
+                  elif alt_pileup:
+                     return [
+                         chromosome,
+                         position,
+                         p1_mu[0],
+                         alt_depth,
+                         p2_mu[1],
+                         round(p2_mu[1] / float(alt_depth), 3),
+                         round(het_b_p2, 3),
+                         round(het_a_p2, 3),
+                         'het',
+                         gc,
+                         int(sum_p2),
+                         bases_list[ii] + bases_list[i],
+                         ".",
+                         "0",
+                     ]
                   else:
-                     no_zero_bases = ":".join(map(str, no_zero_bases))
-                     strands_bases = [str(bases_list[ll])+str(round(p2_mu[6][ll]/float(p2_mu[2+ll]), 3)) for ll in no_zero_idx if ll != i]
-                     strands_bases = ":".join(map(str, strands_bases))
-                  #homoz_p2 = p2_mu[2 + i]/sum_p2
-                  # chromosome, n_base, base_ref, depth_normal, depth_sample, depth.ratio, Af, Bf, zygosity.normal, GC-content, reads above quality, AB.ref, AB.tum, percentage AB.tum in fw
-                  if alt_pileup:
-                     line_out = [chromosome, position, p1_mu[0], alt_depth, p2_mu[1], round(p2_mu[1]/float(alt_depth), 3), round(homoz_p2, 3), 0, 'hom', gc, int(sum_p2), bases_list[i], no_zero_bases, strands_bases]
-                  else:
-                     line_out = [chromosome, position, p1_mu[0], p1_mu[1], p2_mu[1], round(p2_mu[1]/float(p1_mu[1]), 3), round(homoz_p2, 3), 0, 'hom', gc, int(sum_p2), bases_list[i], no_zero_bases, strands_bases]
-                  return line_out
-               else:
-                  pass
-            else:
-               if sort_freq_p1[1] >= het_t:
-                  # Heterozygous position here
-                  allele = list()
-                  for b in xrange(4):
-                     if p1_freq[b] >= het_t:
-                        allele.append(bases_list[b])
-                  if len(allele) == 2:
-                     p2_mu    = parse_pileup(ref, p2_list, qlimit, qformat)
-                     sum_p2   = float(sum(p2_mu[2:6]))
-                     if sum_p2 > 0:
-                        i        = bases_list.index(allele[0])
-                        ii       = bases_list.index(allele[1])
-                        het_a_p2 = p2_mu[2 + i]/sum_p2
-                        het_b_p2 = p2_mu[2 + ii]/sum_p2
-                        if  het_a_p2 >= het_b_p2:
-                           if alt_pileup:
-                              line_out = [chromosome, position, p1_mu[0], alt_depth, p2_mu[1], round(p2_mu[1]/float(alt_depth), 3), round(het_a_p2 , 3), round(het_b_p2 , 3) , 'het', gc, int(sum_p2), bases_list[i]+bases_list[ii], ".", "0"]
-                           else:
-                              line_out = [chromosome, position, p1_mu[0], p1_mu[1], p2_mu[1], round(p2_mu[1]/float(p1_mu[1]), 3), round(het_a_p2 , 3), round(het_b_p2 , 3) , 'het', gc, int(sum_p2), bases_list[i]+bases_list[ii], ".", "0"]
-                           return line_out
-                        elif het_a_p2 < het_b_p2:
-                           if alt_pileup:
-                              line_out = [chromosome, position, p1_mu[0], alt_depth, p2_mu[1], round(p2_mu[1]/float(alt_depth), 3), round(het_b_p2 , 3), round(het_a_p2 , 3) , 'het', gc, int(sum_p2), bases_list[ii]+bases_list[i], ".", "0"]
-                           else:
-                              line_out = [chromosome, position, p1_mu[0], p1_mu[1], p2_mu[1], round(p2_mu[1]/float(p1_mu[1]), 3), round(het_b_p2 , 3), round(het_a_p2 , 3) , 'het', gc, int(sum_p2), bases_list[ii]+bases_list[i], ".", "0"]
-                           return line_out
-                  else:
-                     pass
-         else:
-            pass
-      else:
-         pass
-   else:
-      pass
+                     return [
+                         chromosome,
+                         position,
+                         p1_mu[0],
+                         p1_mu[1],
+                         p2_mu[1],
+                         round(p2_mu[1] / float(p1_mu[1]), 3),
+                         round(het_b_p2, 3),
+                         round(het_a_p2, 3),
+                         'het',
+                         gc,
+                         int(sum_p2),
+                         bases_list[ii] + bases_list[i],
+                         ".",
+                         "0",
+                     ]
 
 class abfreReduce:
    def __init__(self, abf, w):
@@ -543,17 +601,14 @@ def stream_fasta(fa_file, window_size, out_queue):
       line = line.strip()
       if line.startswith('>'):
          chromosome = line
-         if tmp_line == '':
-            #print chromosome
-            out_queue.put(chromosome)
-         else:
+         if tmp_line != '':
             groups = grouper(window_size, tmp_line.upper())
             for group in groups:
                #print group
                out_queue.put(group)
             tmp_line = ''
-            #print chromosome
-            out_queue.put(chromosome)
+         #print chromosome
+         out_queue.put(chromosome)
       else:
          tmp_line = tmp_line + line
          if len(tmp_line)%window_size == 0:
@@ -562,12 +617,7 @@ def stream_fasta(fa_file, window_size, out_queue):
                #print group
                out_queue.put(group)
             tmp_line = ''
-         else:
-            #print tmp_line
-            pass
-   if tmp_line == '':
-      pass
-   else:
+   if tmp_line != '':
       groups = grouper(window_size, tmp_line.upper())
       for group in groups:
          #print group
@@ -645,19 +695,17 @@ def DOpup2seqz(p1, p2, gc, n2, n, qlimit, qformat, hom, het, fileout, out_header
          pup = GCmultiPileups(pup, gc_file)
          fileout.write("\t".join(out_header) + '\n')
          for line in pup:
-            res = line_worker_partial(line)
-            if res:
+            if res := line_worker_partial(line):
                fileout.write('\t'.join(map(str,res))+'\n')
    else:
-      line_worker_partial = partial(line_worker, depth_sum=n, qlimit=qlimit, qformat=qformat, hom_t=hom, het_t=het, alt_pileup=True) 
+      line_worker_partial = partial(line_worker, depth_sum=n, qlimit=qlimit, qformat=qformat, hom_t=hom, het_t=het, alt_pileup=True)
       with xopen(p1, 'rb') as normal, xopen(p2, 'rb') as tumor, xopen(gc, 'rb') as gc_file, xopen(n2, 'rb') as alt_normal:
          pup = multiPileups(normal,tumor)
          pup = GCmultiPileups(pup, gc_file)
          pup = GCmultiPileupsAltDepth(pup, alt_normal)
          fileout.write("\t".join(out_header) + '\n')
          for line in pup:
-            res = line_worker_partial(line)
-            if res:
+            if res := line_worker_partial(line):
                fileout.write('\t'.join(map(str,res))+'\n')
 
 
@@ -677,8 +725,13 @@ def pileup2acgt(parser, subparser):
    parser_pup2muqualitysets.add_argument('-f', '--qformat', dest='qformat', default="sanger",
                    help='Quality format, options are "sanger" or "illumina". This will add an offset of 33 or 64 respectively to the qlimit value.')
    parser_pup2muinfo        = subparser.add_argument_group(title='Info',description='Other Information.')
-   parser_pup2muinfo.add_argument('-v', '--version', action="version", version='%(prog)s version: ' + VERSION + ". " + DATE,
-                   help='Display the version information and exit.')
+   parser_pup2muinfo.add_argument(
+       '-v',
+       '--version',
+       action="version",
+       version=f'%(prog)s version: {VERSION}. {DATE}',
+       help='Display the version information and exit.',
+   )
    return parser.parse_args()
 
 def pileup2seqz(parser, subparser):
